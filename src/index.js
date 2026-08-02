@@ -121,8 +121,8 @@ export default {
 async function generatePrompt(env) {
   const res = await env.AI.run('@cf/meta/llama-3.2-3b-instruct', {
     messages: [
-      { role: 'system', content: 'You create prompts for AI image generation. Always feature a PERSON as the main subject. Be creative and unique each time. Vary: age, gender, ethnicity, pose, expression, clothing, hair, setting, lighting, mood, color palette, era, and artistic style. Never repeat the same concept.' },
-      { role: 'user', content: 'Create one detailed image prompt featuring a person. Different style each time - could be portrait, fashion, editorial, lifestyle, fantasy, vintage, modern, cinematic, etc. Include: person description, pose, expression, outfit, lighting, background, mood, colors, camera angle. End with aspect ratio 3:4 or 9:16. Write ONLY the prompt text in English, 50-100 words.' }
+      { role: 'system', content: 'You create prompts for AI image generation. Always feature a PERSON as the main subject. Be creative and unique each time. IMPORTANT: Subjects should be young adults (20-35 years old). Skin tones: light to medium (Caucasian, East Asian, Middle Eastern, Latina). NEVER generate: Indian, black/African, elderly, or child subjects. VARY the subject: sometimes a young woman alone, sometimes a young man alone, sometimes a couple (man and woman together). Vary: gender, pose, expression, clothing, hair, setting, lighting, mood, color palette, era, and artistic style. Never repeat the same concept.' },
+      { role: 'user', content: 'Create one detailed image prompt featuring a person. Pick randomly: young woman alone, young man alone, or a couple (man+woman). Different style each time - could be portrait, fashion, editorial, lifestyle, fantasy, vintage, modern, cinematic, etc. Include: person description, pose, expression, outfit, lighting, background, mood, colors, camera angle. End with aspect ratio 3:4 or 9:16. Write ONLY the prompt text in English, 50-100 words.' }
     ],
     temperature: 0.95,
     max_tokens: 250
