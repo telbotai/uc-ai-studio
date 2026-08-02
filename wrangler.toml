@@ -1,0 +1,19 @@
+name = "uc-ai-studio"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+
+# Cron: روزی ۳ بار (۸ صبح، ۲ بعدازظهر، ۱۰ شب به وقت ایران)
+triggers = [
+  { cron = "0 4 * * *" },    # 08:00 Iran
+  { cron = "0 10 * * *" },   # 14:00 Iran  
+  { cron = "0 18 * * *" }    # 22:00 Iran
+]
+
+# Workers AI binding (خودکار اضافه می‌شه)
+# [ai]
+# binding = "AI"
+
+# KV for tracking used prompts (اختیاری)
+# [[kv_namespaces]]
+# binding = "PROMPT_DB"
+# id = "your_kv_id"
