@@ -10,7 +10,6 @@ export default {
     if (url.pathname === WEBHOOK_PATH && request.method === 'POST') {
       return handleWebhook(request, env);
     }
-
     if (url.pathname === '/setup') return setupWebhook(env);
 
     if (url.pathname === '/') {
@@ -68,51 +67,37 @@ async function handleMessage(msg, env) {
   const chatId = msg.chat.id;
   const text = msg.text;
 
-  // دستورات
   if (text && text.startsWith('/')) {
     const cmd = text.split('@')[0].split(' ')[0].toLowerCase();
 
     if (cmd === '/start') {
       await send(chatId, `🎨 سلام!
 
-من ربات UC AI Studio هستم.
+من UC AI Studio هستم.
 
 📌 نحوه استفاده:
-۱. یه عکس بفرستید (عکس خودتون یا هرکی)
-۲. بگید /generate
-۳. AI یه پرامپت خلاقانه می‌سازه
-۴. بر اساس عکس شما یه عکس جدید می‌سازه!
+۱. یه عکس بفرستید
+۲. /generate بزنید
+۳. AI پرامپت خلاقانه می‌سازه
+۴. بر اساس عکس شما عکس جدید می‌سازه!
 
-📝 هر بار سبک متفاوت:
-Y2K, سینمایی, انیمه, رنسانسی, استودیویی و...
+💡 هر بار سبک متفاوت:
+Y2K, سینمایی, انیمه, رنسانسی, استودیویی...
 
-💡 فقط عکس رو نگه می‌دارم، هر وقت /generate بزنید عکس جدید می‌سازم!`, env);
-      return;
-    }
-
-    if (cmd === '/help') {
-      await send(chatId, `📖 راهنما:
-
-🔹 عکس بفرستید → ذخیره می‌شه
-🔹 /generate → عکس جدید بساز
-🔹 /status → وضعیت عکس مرجع
-🔹 /clear → حذف عکس مرجع`, env);
+📝 /status → وضعیت عکس
+🗑️ /clear → حذف عکس`, env);
       return;
     }
 
     if (cmd === '/status') {
       const hasPhoto = env.PHOTO_DB ? await env.PHOTO_DB.get('reference_photo') : null;
-      if (hasPhoto) {
-        await send(chatId, `✅ عکس مرجع ذخیره شده!\n\n/start → عکس جدید\n/generate → ساخت عکس`, env);
-      } else {
-        await send(chatId, `❌ هنوز عکسی ذخیره نشده!\n\nیه عکس بفرستید.`, env);
-      }
+      await send(chatId, hasPhoto ? `✅ عکس مرجع ذخیره شده!\n/generate → عکس جدید` : `❌ عکسی ذخیره نشده!\nیه عکس بفرستید.`, env);
       return;
     }
 
     if (cmd === '/clear') {
       if (env.PHOTO_DB) await env.PHOTO_DB.delete('reference_photo');
-      await send(chatId, `✅ عکس مرجع حذف شد.`, env);
+      await send(chatId, `✅ حذف شد.`, env);
       return;
     }
   }
@@ -123,62 +108,98 @@ Y2K, سینمایی, انیمه, رنسانسی, استودیویی و...
     if (env.PHOTO_DB) {
       await env.PHOTO_DB.put('reference_photo', photo.file_id);
     }
-    await send(chatId, `✅ عکس ذخیره شد!\n\nحالا /generate بزنید تا AI یه عکس جدید با سبک متفاوت بسازه!`, env);
+    await send(chatId, `✅ عکس ذخیره شد!\n\nحالا /generate بزنید!`, env);
     return;
   }
 
-  // متن معمولی
   if (text) {
-    await send(chatId, `💡 برای شروع یه عکس بفرستید!\n\nبعد /generate بزنید.`, env);
+    await send(chatId, `💡 یه عکس بفرستید → بعد /generate بزنید!`, env);
   }
 }
 
 // ─── ساخت عکس ───
 async function runGeneration(env) {
   try {
-    if (!env.AI) return new Response('❌ AI not connected');
-    if (!env.PHOTO_DB) return new Response('❌ KV not connected');
+    if (!env.AI) return sendAndRespond('❌ AI not connected');
+    if (!env.PHOTO_DB) return sendAndRespond('❌ KV not connected');
 
     // ۱. عکس مرجع
     const fileId = await env.PHOTO_DB.get('reference_photo');
     if (!fileId) {
-      await sendTelegram('⚠️ اول یه عکس بفرستید تا ذخیره بشه!\n\nبعد /generate بزنید.', env);
+      await sendTelegram('⚠️ اول یه عکس بفرستید!\n\nبعد /generate بزنید.', env);
       return new Response('No reference photo');
     }
 
     // ۲. دانلود عکس
     const photoBuffer = await downloadPhoto(fileId, env);
     if (!photoBuffer) {
-      await sendTelegram('❌ خطا در دانلود عکس مرجع', env);
+      await sendTelegram('❌ خطا در دانلود عکس', env);
       return new Response('Download error');
     }
 
     // ۳. پرامپت خلاقانه
     let prompt = null;
-    try { prompt = await generateCreativePrompt(env); } catch (e) {}
+    try { prompt = await generateCreativePrompt(env); } catch (e) { console.error('LLM error:', e); }
     if (!prompt) {
       await sendTelegram('❌ خطا در ساخت پرامپت', env);
       return new Response('Prompt error');
     }
 
-    // ۴. عکس جدید (img2img)
+    // ۴. عکس جدید با img2img
     const photoBase64 = bytesToBase64(photoBuffer);
     let newImgBlob = null;
 
+    // تلاش ۱: FLUX-1-schnell (txt2img با توضیح چهره)
     try {
       const r = await env.AI.run('@cf/black-forest-labs/flux-1-schnell', {
         prompt: prompt,
-        image: photoBase64,
         width: 768, height: 1024,
         num_steps: 4,
-        strength: 0.65,
         seed: Math.floor(Math.random() * 999999)
       });
       if (r && r.image) {
         newImgBlob = new Blob([base64ToBytes(r.image)], { type: 'image/webp' });
       }
     } catch (e) {
-      console.error('Image gen error:', e);
+      console.error('FLUX error:', e);
+    }
+
+    // تلاش ۲: SDXL img2img
+    if (!newImgBlob) {
+      try {
+        const r = await env.AI.run('@cf/stabilityai/stable-diffusion-xl-base-1.0', {
+          prompt: prompt,
+          image: photoBase64,
+          strength: 0.65,
+          num_steps: 20,
+          guidance: 7.5,
+          seed: Math.floor(Math.random() * 999999)
+        });
+        if (r && r.image) {
+          newImgBlob = new Blob([base64ToBytes(r.image)], { type: 'image/webp' });
+        }
+      } catch (e) {
+        console.error('SDXL error:', e);
+      }
+    }
+
+    // تلاش ۳: SD v1.5 img2img
+    if (!newImgBlob) {
+      try {
+        const r = await env.AI.run('@cf/runwayml/stable-diffusion-v1-5-img2img', {
+          prompt: prompt,
+          image: photoBase64,
+          strength: 0.65,
+          num_steps: 20,
+          guidance: 7.5,
+          seed: Math.floor(Math.random() * 999999)
+        });
+        if (r && r.image) {
+          newImgBlob = new Blob([base64ToBytes(r.image)], { type: 'image/webp' });
+        }
+      } catch (e) {
+        console.error('SD v1.5 error:', e);
+      }
     }
 
     // ۵. ارسال
@@ -205,31 +226,31 @@ async function generateCreativePrompt(env) {
       { role: 'system', content: `You create image generation prompts for a reference photo of a person.
 
 RULES:
-1. ALWAYS start with: "Use the uploaded photo as the ONLY identity reference. Keep the exact facial features. Photorealistic, high-fidelity face retention. Maintain original face identity."
+1. ALWAYS start with: "Use the uploaded photo as the ONLY identity reference. Keep the exact facial features. Photorealistic, high-fidelity face retention."
 2. Then describe a creative NEW scene for that SAME person
-3. Vary EACH TIME: different outfit, different setting, different lighting, different mood, different era
-4. Include: pose, expression, clothing, hair style, background, colors, lighting, camera angle
+3. Vary EACH TIME: different outfit, setting, lighting, mood, era
+4. Include: pose, expression, clothing, hair, background, colors, lighting, camera angle
 5. End with aspect ratio 3:4 or 9:16
 6. NEVER repeat the same concept
 
-STYLE IDEAS (rotate through these):
-- Y2K birthday flash photography, disposable camera aesthetic
+STYLE IDEAS (rotate through):
+- Y2K birthday flash, disposable camera
 - Cinematic moonlight ocean portrait
-- Vintage 1970s film in wildflower meadow, golden hour
-- Cyberpunk neon Tokyo rooftop at night
-- Renaissance oil painting, classical portrait
-- Studio portrait with dramatic blue lighting
-- Underwater fashion editorial, flowing dress
-- Night romantic street photography, city lights
-- Dark gothic cathedral, dramatic shadows
-- Japanese anime style, golden hour street
-- Dreamy ethereal, floating among clouds
-- Art deco luxury 1920s glamour
-- Minimalist Scandinavian, natural light by window
-- Birthday celebration with balloons and cake
-- Cinematic close-up, rain drops on face
-- Vintage film, coffee shop candid moment` },
-      { role: 'user', content: 'Create ONE new unique prompt for the reference photo. Be creative and different each time! 60-100 words. Write ONLY the prompt text.' }
+- Vintage 1970s film, wildflower meadow, golden hour
+- Cyberpunk neon Tokyo rooftop
+- Renaissance oil painting
+- Studio portrait, dramatic blue lighting
+- Underwater fashion editorial
+- Night romantic street photography
+- Dark gothic cathedral
+- Japanese anime golden hour
+- Dreamy ethereal, floating in clouds
+- Art deco 1920s luxury
+- Minimalist Scandinavian, natural light
+- Birthday celebration with balloons
+- Cinematic rain close-up
+- Vintage coffee shop candid` },
+      { role: 'user', content: 'Create ONE new unique prompt. Be creative and different each time! 60-100 words. Write ONLY the prompt.' }
     ],
     temperature: 0.95,
     max_tokens: 250
@@ -248,7 +269,6 @@ async function downloadPhoto(fileId, env) {
     const fileRes = await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/getFile?file_id=${fileId}`);
     const fileData = await fileRes.json();
     if (!fileData.ok) return null;
-
     const fileUrl = `https://api.telegram.org/file/bot${env.BOT_TOKEN}/${fileData.result.file_path}`;
     const res = await fetch(fileUrl);
     if (!res.ok) return null;
@@ -283,19 +303,15 @@ function bytesToBase64(buffer) {
 }
 
 async function send(chatId, text, env) {
-  await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/sendMessage`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text: text, disable_web_page_preview: true })
-  });
-}
-
-async function sendTelegram(text, env) {
   try {
     await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: env.CHAT_ID, text: text, disable_web_page_preview: true })
+      body: JSON.stringify({ chat_id: chatId, text: text, disable_web_page_preview: true })
     });
   } catch (e) {}
+}
+
+async function sendTelegram(text, env) {
+  await send(env.CHAT_ID, text, env);
 }
