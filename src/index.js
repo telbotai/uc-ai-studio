@@ -4,9 +4,7 @@
 const WEBHOOK_PATH = '/webhook';
 
 function formatMessage(prompt) {
-  return `🎨 پرامپت جدید
-
-#پرامپت 📌
+  return `#پرامپت 📌
 این پرامپت برای ویرایش عکسه؛ عکس خودت را با پرامپت زیر به هوش مصنوعی بده تا با عکس خودت یه نمونه شبیه تصویر بالا بسازه
 
 از هوش مصنوعی [Gemini](https://gemini.google.com) و یا [ChatGPT](https://chatgpt.com) و یا [Craiyon](https://www.craiyon.com) میتونی استفاده کنی
