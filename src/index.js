@@ -3,6 +3,23 @@
 
 const WEBHOOK_PATH = '/webhook';
 
+function formatMessage(prompt) {
+  return `🎨 پرامپت جدید
+
+#پرامپت 📌
+این پرامپت برای ویرایش عکسه؛ عکس خودت را با پرامپت زیر به هوش مصنوعی بده تا با عکس خودت یه نمونه شبیه تصویر بالا بسازه
+
+از هوش مصنوعی [Gemini](https://gemini.google.com) و یا [ChatGPT](https://chatgpt.com) و یا [Craiyon](https://www.craiyon.com) میتونی استفاده کنی
+
+\`\`\`
+${prompt}
+\`\`\`
+
+Channel: @Uciranir
+#برنامه #آموزش #هوش_مصنوعی #اینترنت
+#app #ai #Tutorial #Prompt #net`;
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -36,15 +53,14 @@ async function handleWebhook(request, env) {
     const update = await request.json();
     if (update.message) {
       const msg = update.message;
-      const chatId = msg.chat.id;
       const text = msg.text;
 
       if (text === '/start' || text === '/help') {
-        await send(chatId, '🎨 /generate بزنید تا پرامپت و عکس جدید بسازم!', env);
+        await send(msg.chat.id, '🎨 /generate بزنید تا پرامپت و عکس جدید بسازم!', env);
       }
 
       if (text === '/generate') {
-        await runGenerationForChat(chatId, env);
+        await runForChat(msg.chat.id, env);
       }
     }
     return new Response('OK');
@@ -53,8 +69,8 @@ async function handleWebhook(request, env) {
   }
 }
 
-// ─── ساخت برای چت خاص ───
-async function runGenerationForChat(chatId, env) {
+// ─── ساخت برای ربات ───
+async function runForChat(chatId, env) {
   try {
     if (!env.AI) return send(chatId, '❌ AI not connected', env);
 
@@ -72,18 +88,7 @@ async function runGenerationForChat(chatId, env) {
       if (r && r.image) imgBlob = new Blob([base64ToBytes(r.image)], { type: 'image/webp' });
     } catch (e) {}
 
-    const caption = `🎨 پرامپت جدید
-
-#پرامپت
-📌 این پرامپت برای ویرایش عکسه؛ عکس خودت را با پرامپت زیر به هوش مصنوعی بده تا با عکس خودت یه نمونه شبیه تصویر بالا بسازه
-
-از هوش مصنوعی Gemini و یا ChatGPT و یا Qwen و یا این سایت میتونی استفاده کنی
-
-> ${prompt}
-
-Channel: @Uciranir
-#برنامه #آموزش #هوش_مصنوعی #اینترنت
-#app #ai #Tutorial #Prompt #net`;
+    const caption = formatMessage(prompt);
 
     if (imgBlob) {
       const fd = new FormData();
@@ -120,20 +125,8 @@ async function runGeneration(env) {
       if (r && r.image) imgBlob = new Blob([base64ToBytes(r.image)], { type: 'image/webp' });
     } catch (e) {}
 
-    const caption = `🎨 پرامپت جدید
+    const caption = formatMessage(prompt);
 
-#پرامپت
-📌 این پرامپت برای ویرایش عکسه؛ عکس خودت را با پرامپت زیر به هوش مصنوعی بده تا با عکس خودت یه نمونه شبیه تصویر بالا بسازه
-
-از هوش مصنوعی Gemini و یا ChatGPT و یا Qwen و یا این سایت میتونی استفاده کنی
-
-> ${prompt}
-
-Channel: @Uciranir
-#برنامه #آموزش #هوش_مصنوعی #اینترنت
-#app #ai #Tutorial #Prompt #net`;
-
-    // ارسال به تلگرام
     let sent = false;
     if (imgBlob) {
       const fd = new FormData();
@@ -146,9 +139,7 @@ Channel: @Uciranir
       if (!sent) return new Response('Telegram error: ' + JSON.stringify(data));
     }
 
-    if (!sent) {
-      await send(env.CHAT_ID, caption, env);
-    }
+    if (!sent) await send(env.CHAT_ID, caption, env);
 
     return new Response('Done!\n\nPrompt: ' + prompt);
   } catch (e) {
