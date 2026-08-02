@@ -1,5 +1,5 @@
-// UC AI Studio - Reference Photo + Creative Prompts
-// 📸 عکس بده → 🧠 AI پرامپت بسازه → 🎨 عکس جدید بسازه
+// UC AI Studio - Creative Prompts + Image Generation
+// 🧠 LLM پرامپت خلاقانه می‌سازه → 🎨 FLUX عکس می‌سازه → 📱 تلگرام
 
 const WEBHOOK_PATH = '/webhook';
 
@@ -17,8 +17,7 @@ export default {
         `🎨 UC AI Studio\n\n` +
         `Bot: ${env.BOT_TOKEN ? '✅' : '❌'} | ` +
         `Chat: ${env.CHAT_ID ? '✅' : '❌'} | ` +
-        `AI: ${env.AI ? '✅' : '❌'} | ` +
-        `KV: ${env.PHOTO_DB ? '✅' : '❌'}\n\n` +
+        `AI: ${env.AI ? '✅' : '❌'}\n\n` +
         `/test-image | /generate`
       );
     }
@@ -27,7 +26,7 @@ export default {
       try {
         if (!env.AI) return new Response('❌ AI not connected');
         const res = await env.AI.run('@cf/black-forest-labs/flux-1-schnell', {
-          prompt: 'portrait of a young woman, golden hour lighting, photorealistic, 3:4',
+          prompt: 'portrait of a young woman, golden hour lighting, photorealistic',
           width: 512, height: 512, num_steps: 4, seed: 42
         });
         if (res && res.image) {
@@ -75,81 +74,35 @@ async function handleMessage(msg, env) {
 
 من UC AI Studio هستم.
 
-📌 نحوه استفاده:
-۱. یه عکس بفرستید
-۲. /generate بزنید
-۳. AI پرامپت خلاقانه می‌سازه
-۴. بر اساس عکس شما عکس جدید می‌سازه!
+📌 /generate → پرامپت خلاقانه + عکس
+📌 /test-image → تست عکس
 
 💡 هر بار سبک متفاوت:
-Y2K, سینمایی, انیمه, رنسانسی, استودیویی...
-
-📝 /status → وضعیت عکس
-🗑️ /clear → حذف عکس`, env);
+Y2K, سینمایی, انیمه, رنسانسی, استودیویی...`, env);
       return;
     }
-
-    if (cmd === '/status') {
-      const hasPhoto = env.PHOTO_DB ? await env.PHOTO_DB.get('reference_photo') : null;
-      await send(chatId, hasPhoto ? `✅ عکس مرجع ذخیره شده!\n/generate → عکس جدید` : `❌ عکسی ذخیره نشده!\nیه عکس بفرستید.`, env);
-      return;
-    }
-
-    if (cmd === '/clear') {
-      if (env.PHOTO_DB) await env.PHOTO_DB.delete('reference_photo');
-      await send(chatId, `✅ حذف شد.`, env);
-      return;
-    }
-  }
-
-  // عکس → ذخیره
-  if (msg.photo) {
-    const photo = msg.photo[msg.photo.length - 1];
-    if (env.PHOTO_DB) {
-      await env.PHOTO_DB.put('reference_photo', photo.file_id);
-    }
-    await send(chatId, `✅ عکس ذخیره شد!\n\nحالا /generate بزنید!`, env);
-    return;
   }
 
   if (text) {
-    await send(chatId, `💡 یه عکس بفرستید → بعد /generate بزنید!`, env);
+    await send(chatId, `💡 /generate بزنید تا پرامپت و عکس جدید بسازم!`, env);
   }
 }
 
 // ─── ساخت عکس ───
 async function runGeneration(env) {
   try {
-    if (!env.AI) return sendAndRespond('❌ AI not connected');
-    if (!env.PHOTO_DB) return sendAndRespond('❌ KV not connected');
+    if (!env.AI) return new Response('❌ AI not connected');
 
-    // ۱. عکس مرجع
-    const fileId = await env.PHOTO_DB.get('reference_photo');
-    if (!fileId) {
-      await sendTelegram('⚠️ اول یه عکس بفرستید!\n\nبعد /generate بزنید.', env);
-      return new Response('No reference photo');
-    }
-
-    // ۲. دانلود عکس
-    const photoBuffer = await downloadPhoto(fileId, env);
-    if (!photoBuffer) {
-      await sendTelegram('❌ خطا در دانلود عکس', env);
-      return new Response('Download error');
-    }
-
-    // ۳. پرامپت خلاقانه
+    // ۱. LLM پرامپت بسازه
     let prompt = null;
-    try { prompt = await generateCreativePrompt(env); } catch (e) { console.error('LLM error:', e); }
+    try { prompt = await generatePrompt(env); } catch (e) { console.error('LLM error:', e); }
     if (!prompt) {
       await sendTelegram('❌ خطا در ساخت پرامپت', env);
       return new Response('Prompt error');
     }
 
-    // ۴. عکس جدید با img2img
-    const photoBase64 = bytesToBase64(photoBuffer);
-    let newImgBlob = null;
-
-    // تلاش ۱: FLUX-1-schnell (txt2img با توضیح چهره)
+    // ۲. FLUX عکس بسازه
+    let imgBlob = null;
     try {
       const r = await env.AI.run('@cf/black-forest-labs/flux-1-schnell', {
         prompt: prompt,
@@ -158,83 +111,52 @@ async function runGeneration(env) {
         seed: Math.floor(Math.random() * 999999)
       });
       if (r && r.image) {
-        newImgBlob = new Blob([base64ToBytes(r.image)], { type: 'image/webp' });
+        imgBlob = new Blob([base64ToBytes(r.image)], { type: 'image/webp' });
       }
     } catch (e) {
-      console.error('FLUX error:', e);
+      console.error('Image error:', e);
     }
 
-    // تلاش ۲: SDXL img2img
-    if (!newImgBlob) {
-      try {
-        const r = await env.AI.run('@cf/stabilityai/stable-diffusion-xl-base-1.0', {
-          prompt: prompt,
-          image: photoBase64,
-          strength: 0.65,
-          num_steps: 20,
-          guidance: 7.5,
-          seed: Math.floor(Math.random() * 999999)
-        });
-        if (r && r.image) {
-          newImgBlob = new Blob([base64ToBytes(r.image)], { type: 'image/webp' });
-        }
-      } catch (e) {
-        console.error('SDXL error:', e);
-      }
-    }
+    // ۳. ارسال به تلگرام
+    const caption = `🎨 پرامپت جدید\n\n📝 ${prompt}`;
 
-    // تلاش ۳: SD v1.5 img2img
-    if (!newImgBlob) {
-      try {
-        const r = await env.AI.run('@cf/runwayml/stable-diffusion-v1-5-img2img', {
-          prompt: prompt,
-          image: photoBase64,
-          strength: 0.65,
-          num_steps: 20,
-          guidance: 7.5,
-          seed: Math.floor(Math.random() * 999999)
-        });
-        if (r && r.image) {
-          newImgBlob = new Blob([base64ToBytes(r.image)], { type: 'image/webp' });
-        }
-      } catch (e) {
-        console.error('SD v1.5 error:', e);
-      }
-    }
-
-    // ۵. ارسال
-    if (newImgBlob) {
+    if (imgBlob) {
       const fd = new FormData();
       fd.append('chat_id', env.CHAT_ID);
-      fd.append('photo', newImgBlob, 'ai.webp');
-      fd.append('caption', `🎨 پرامپت جدید\n\n📝 ${prompt}`);
+      fd.append('photo', imgBlob, 'ai.webp');
+      fd.append('caption', caption);
       await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/sendPhoto`, { method: 'POST', body: fd });
     } else {
-      await sendTelegram(`📝 **پرامپت:**\n${prompt}\n\n❌ عکس ساخته نشد`, env);
+      await sendTelegram(caption, env);
     }
 
-    return new Response('Done! Prompt: ' + prompt);
+    return new Response('Done!\n\nPrompt: ' + prompt);
   } catch (e) {
     return new Response('Error: ' + e.message);
   }
 }
 
 // ─── LLM پرامپت خلاقانه ───
-async function generateCreativePrompt(env) {
+async function generatePrompt(env) {
   const res = await env.AI.run('@cf/meta/llama-3.2-3b-instruct', {
     messages: [
-      { role: 'system', content: `You create image generation prompts for a reference photo of a person.
+      { role: 'system', content: `You create image generation prompts. Each prompt MUST start with these exact sentences:
+
+"Use the uploaded photo as the ONLY identity reference. Keep the exact facial features. Photorealistic, high-fidelity face retention. Maintain original face identity."
+
+Then describe a creative, unique scene. Vary each time. Be poetic and detailed.
 
 RULES:
-1. ALWAYS start with: "Use the uploaded photo as the ONLY identity reference. Keep the exact facial features. Photorealistic, high-fidelity face retention."
-2. Then describe a creative NEW scene for that SAME person
-3. Vary EACH TIME: different outfit, setting, lighting, mood, era
-4. Include: pose, expression, clothing, hair, background, colors, lighting, camera angle
-5. End with aspect ratio 3:4 or 9:16
-6. NEVER repeat the same concept
+1. ALWAYS start with the face preservation text above
+2. Then describe: the scene, setting, lighting, mood, clothing, pose, expression, colors, atmosphere
+3. End with: "Aspect ratio 3:4" or "Aspect ratio 9:16"
+4. NEVER repeat the same concept
+5. Subjects: young adults (20-35), light-medium skin tones
+6. Vary: woman alone, man alone, couple together
+7. NEVER: Indian, black/African, elderly, or child subjects
 
-STYLE IDEAS (rotate through):
-- Y2K birthday flash, disposable camera
+STYLE IDEAS (rotate through different ones each time):
+- Y2K birthday flash photography, disposable camera
 - Cinematic moonlight ocean portrait
 - Vintage 1970s film, wildflower meadow, golden hour
 - Cyberpunk neon Tokyo rooftop
@@ -250,7 +172,7 @@ STYLE IDEAS (rotate through):
 - Birthday celebration with balloons
 - Cinematic rain close-up
 - Vintage coffee shop candid` },
-      { role: 'user', content: 'Create ONE new unique prompt. Be creative and different each time! 60-100 words. Write ONLY the prompt.' }
+      { role: 'user', content: 'Create ONE new unique prompt. Be creative and poetic! Different style, setting, mood each time. 60-100 words. Write ONLY the prompt text.' }
     ],
     temperature: 0.95,
     max_tokens: 250
@@ -261,21 +183,6 @@ STYLE IDEAS (rotate through):
     if (text.length > 50) return text;
   }
   return null;
-}
-
-// ─── دانلود عکس از تلگرام ───
-async function downloadPhoto(fileId, env) {
-  try {
-    const fileRes = await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/getFile?file_id=${fileId}`);
-    const fileData = await fileRes.json();
-    if (!fileData.ok) return null;
-    const fileUrl = `https://api.telegram.org/file/bot${env.BOT_TOKEN}/${fileData.result.file_path}`;
-    const res = await fetch(fileUrl);
-    if (!res.ok) return null;
-    return await res.arrayBuffer();
-  } catch (e) {
-    return null;
-  }
 }
 
 // ─── Webhook ───
@@ -293,13 +200,6 @@ function base64ToBytes(base64) {
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   return bytes;
-}
-
-function bytesToBase64(buffer) {
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary);
 }
 
 async function send(chatId, text, env) {

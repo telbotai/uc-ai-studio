@@ -2,12 +2,7 @@ name = "uc-ai-studio"
 main = "src/index.js"
 compatibility_date = "2024-01-01"
 
-# Cron: روزی ۱ بار (پلن رایگان)
+# Cron: روزی ۱ بار
 triggers = [
-  { cron = "0 4 * * *" }    # 08:00 Iran
+  { cron = "0 4 * * *" }
 ]
-
-# KV namespace for reference photos
-[[kv_namespaces]]
-binding = "PHOTO_DB"
-id = "YOUR_KV_NAMESPACE_ID"
