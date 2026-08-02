@@ -1,7 +1,20 @@
-// UC AI Studio - Creative Prompts + Image Generation
-// 🧠 LLM پرامپت خلاقانه می‌سازه → 🎨 FLUX عکس می‌سازه → 📱 تلگرام
+// UC AI Studio - Final Version
+// 🧠 LLM پرامپت → 🎨 FLUX عکس → 📱 تلگرام
 
 const WEBHOOK_PATH = '/webhook';
+
+const MESSAGE_TEMPLATE = `🎨 پرامپت جدید
+
+#پرامپت
+📌 این پرامپت برای ویرایش عکسه؛ عکس خودت را با پرامپت زیر به هوش مصنوعی بده تا با عکس خودت یه نمونه شبیه تصویر بالا بسازه
+
+از هوش مصنوعی Gemini و یا ChatGPT و یا Qwen و یا این سایت میتونی استفاده کنی
+
+> __PROMPT_PLACEHOLDER__
+
+Channel: @Uciranir
+#برنامه #آموزش #هوش_مصنوعی #اینترنت
+#app #ai #Tutorial #Prompt #net`;
 
 export default {
   async fetch(request, env) {
@@ -26,7 +39,7 @@ export default {
       try {
         if (!env.AI) return new Response('❌ AI not connected');
         const res = await env.AI.run('@cf/black-forest-labs/flux-1-schnell', {
-          prompt: 'portrait of a young woman, golden hour lighting, photorealistic',
+          prompt: 'portrait of a young man, golden hour lighting, photorealistic',
           width: 512, height: 512, num_steps: 4, seed: 42
         });
         if (res && res.image) {
@@ -50,7 +63,7 @@ export default {
   }
 };
 
-// ─── Webhook Handler ───
+// ─── Webhook ───
 async function handleWebhook(request, env) {
   try {
     const update = await request.json();
@@ -69,26 +82,33 @@ async function handleMessage(msg, env) {
   if (text && text.startsWith('/')) {
     const cmd = text.split('@')[0].split(' ')[0].toLowerCase();
 
-    if (cmd === '/start') {
+    if (cmd === '/start' || cmd === '/help') {
       await send(chatId, `🎨 سلام!
 
 من UC AI Studio هستم.
 
-📌 /generate → پرامپت خلاقانه + عکس
+📌 /generate → پرامپت + عکس جدید
 📌 /test-image → تست عکس
 
 💡 هر بار سبک متفاوت:
-Y2K, سینمایی, انیمه, رنسانسی, استودیویی...`, env);
+Y2K, سینمایی, انیمه, رنسانسی...`, env);
+      return;
+    }
+
+    if (cmd === '/generate') {
+      // مستقیماً عکس بسازه - بدون عکس مرجع
+      await runGeneration(env);
       return;
     }
   }
 
+  // هر متنی بفرسته → راهنمایی
   if (text) {
     await send(chatId, `💡 /generate بزنید تا پرامپت و عکس جدید بسازم!`, env);
   }
 }
 
-// ─── ساخت عکس ───
+// ─── ساخت پرامپت + عکس ───
 async function runGeneration(env) {
   try {
     if (!env.AI) return new Response('❌ AI not connected');
@@ -117,14 +137,15 @@ async function runGeneration(env) {
       console.error('Image error:', e);
     }
 
-    // ۳. ارسال به تلگرام
-    const caption = `🎨 پرامپت جدید\n\n📝 ${prompt}`;
+    // ۳. ارسال با فرمت صحیح
+    const caption = MESSAGE_TEMPLATE.replace('__PROMPT_PLACEHOLDER__', prompt);
 
     if (imgBlob) {
       const fd = new FormData();
       fd.append('chat_id', env.CHAT_ID);
       fd.append('photo', imgBlob, 'ai.webp');
       fd.append('caption', caption);
+      fd.append('parse_mode', 'Markdown');
       await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/sendPhoto`, { method: 'POST', body: fd });
     } else {
       await sendTelegram(caption, env);
@@ -136,26 +157,26 @@ async function runGeneration(env) {
   }
 }
 
-// ─── LLM پرامپت خلاقانه ───
+// ─── LLM پرامپت ───
 async function generatePrompt(env) {
   const res = await env.AI.run('@cf/meta/llama-3.2-3b-instruct', {
     messages: [
-      { role: 'system', content: `You create image generation prompts. Each prompt MUST start with these exact sentences:
+      { role: 'system', content: `You create image generation prompts. Each prompt MUST start with:
 
 "Use the uploaded photo as the ONLY identity reference. Keep the exact facial features. Photorealistic, high-fidelity face retention. Maintain original face identity."
 
-Then describe a creative, unique scene. Vary each time. Be poetic and detailed.
+Then describe a creative, unique scene. Be poetic and detailed.
 
 RULES:
 1. ALWAYS start with the face preservation text above
-2. Then describe: the scene, setting, lighting, mood, clothing, pose, expression, colors, atmosphere
+2. Then describe: the scene, setting, lighting, mood, clothing, pose, expression, colors
 3. End with: "Aspect ratio 3:4" or "Aspect ratio 9:16"
 4. NEVER repeat the same concept
-5. Subjects: young adults (20-35), light-medium skin tones
-6. Vary: woman alone, man alone, couple together
+5. IMPORTANT: Alternate between male and female subjects. About 50% women, 50% men, 10% couples
+6. Subjects: young adults (20-35), light-medium skin tones (Caucasian, East Asian, Middle Eastern, Latina)
 7. NEVER: Indian, black/African, elderly, or child subjects
 
-STYLE IDEAS (rotate through different ones each time):
+STYLE IDEAS (rotate):
 - Y2K birthday flash photography, disposable camera
 - Cinematic moonlight ocean portrait
 - Vintage 1970s film, wildflower meadow, golden hour
@@ -172,7 +193,7 @@ STYLE IDEAS (rotate through different ones each time):
 - Birthday celebration with balloons
 - Cinematic rain close-up
 - Vintage coffee shop candid` },
-      { role: 'user', content: 'Create ONE new unique prompt. Be creative and poetic! Different style, setting, mood each time. 60-100 words. Write ONLY the prompt text.' }
+      { role: 'user', content: 'Create ONE new unique prompt. Alternate between male and female subjects! Be creative and poetic! 60-100 words. Write ONLY the prompt text.' }
     ],
     temperature: 0.95,
     max_tokens: 250
